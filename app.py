@@ -2,7 +2,6 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 import binascii
 from flask import Flask, request, jsonify
-import requests
 import time
 from data_pb2 import response
 from secret import key, iv
@@ -113,14 +112,24 @@ def protobuf_to_dict(pb_message):
         "timestamp": int(time.time())
     }
 
-@app.route('/players-data', methods=['GET'])
+def encrypt_protobuf(pb_message):
+    """Encrypt the protobuf message using AES-CBC"""
+    serialized = pb_message.SerializeToString()
+    key_bytes = key.encode()[:16]
+    iv_bytes = iv.encode()[:16]
+    cipher = AES.new(key_bytes, AES.MODE_CBC, iv_bytes)
+    padded_data = pad(serialized, AES.block_size)
+    encrypted_data = cipher.encrypt(padded_data)
+    return binascii.hexlify(encrypted_data).decode()
+
+@app.route('/player-data', methods=['GET'])
 def player_data():
-    """Endpoint returning ALL fields from data.proto"""
+    """Endpoint returning ALL player data in both JSON and encrypted formats"""
     uid = request.args.get('uid')
     region = request.args.get('region')
 
-    if not uid or not region:
-        return jsonify({"error": "Missing 'uid' or 'region' parameter"}), 400
+    if not uid:
+        return jsonify({"error": "Missing 'uid' parameter"}), 400
 
     try:
         user_id = int(uid)
@@ -132,44 +141,28 @@ def player_data():
     
     # Convert to dictionary for JSON response
     response_data = protobuf_to_dict(pb_response)
-    response_data['request_region'] = region.upper()
-    response_data['credit'] = "@Ujjaiwal"
-
-    return jsonify(response_data)
-
-@app.route('/encrypted-data', methods=['GET'])
-def encrypted_data():
-    """Endpoint returning encrypted protobuf data"""
-    uid = request.args.get('uid')
     
-    if not uid:
-        return jsonify({"error": "Missing 'uid' parameter"}), 400
-
-    try:
-        user_id = int(uid)
-    except ValueError:
-        return jsonify({"error": "Invalid UID format"}), 400
-
-    # Create protobuf
-    pb_response = create_complete_response(user_id)
-    serialized = pb_response.SerializeToString()
+    # Add region if provided
+    if region:
+        response_data['request_region'] = region.upper()
     
-    # Encrypt the data
-    key_bytes = key.encode()[:16]
-    iv_bytes = iv.encode()[:16]
-    cipher = AES.new(key_bytes, AES.MODE_CBC, iv_bytes)
-    padded_data = pad(serialized, AES.block_size)
-    encrypted_data = cipher.encrypt(padded_data)
+    # Encrypt the protobuf
+    encrypted_data = encrypt_protobuf(pb_response)
     
-    return jsonify({
-        "encrypted_data": binascii.hexlify(encrypted_data).decode(),
+    # Combine both responses
+    full_response = {
+        "json_data": response_data,
+        "encrypted_data": encrypted_data,
         "encryption_info": {
             "algorithm": "AES-CBC",
             "key_size": 128,
             "padding": "PKCS7"
         },
+        "credit": "@Ujjaiwal",
         "timestamp": int(time.time())
-    })
+    }
+
+    return jsonify(full_response)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
