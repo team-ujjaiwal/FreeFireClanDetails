@@ -113,7 +113,7 @@ def protobuf_to_dict(pb_message):
         "timestamp": int(time.time())
     }
 
-@app.route('/player-data', methods=['GET'])
+@app.route('/players-data', methods=['GET'])
 def player_data():
     """Endpoint returning ALL fields from data.proto"""
     uid = request.args.get('uid')
